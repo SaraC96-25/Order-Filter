@@ -2,3 +2,5 @@ streamlit>=1.36
 requests>=2.32
 pandas>=2.2
 openpyxl>=3.1
+cairosvg>=2.7
+reportlab>=4.2

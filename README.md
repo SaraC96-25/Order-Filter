@@ -101,3 +101,24 @@ Il riepilogo finale sarà:
 | White | 340 |
 
 Il foglio `Dettaglio ordini` mantiene comunque il nome del prodotto, così puoi verificare da dove arrivano i totali.
+
+
+## Export istituzionale Wowstampa
+
+Questa versione genera anche un export istituzionale con:
+- logo Wowstampa;
+- titolo report;
+- periodo analizzato;
+- data e ora di generazione;
+- parametri del report;
+- KPI principali;
+- riepilogo finale unificato per colore;
+- foglio dettaglio ordini.
+
+Download disponibili:
+- `Excel istituzionale`
+- `PDF istituzionale`
+- `CSV riepilogo`
+
+### Logo
+Il progetto include l'asset `assets/wowstampa_logo.svg`, usato automaticamente negli export.

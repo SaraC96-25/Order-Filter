@@ -4,13 +4,32 @@ from collections import defaultdict
 from datetime import datetime, time
 from io import BytesIO
 from zoneinfo import ZoneInfo
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
+import cairosvg
 import pandas as pd
 import requests
 import streamlit as st
+from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import Image as RLImage, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 API_VERSION = "2026-04"
+BASE_DIR = Path(__file__).resolve().parent
+LOGO_SVG_PATH = BASE_DIR / "assets" / "wowstampa_logo.svg"
+BRAND_GREEN = "3AAA35"
+BRAND_DARK = "1D1D1B"
+LIGHT_GREEN = "EAF6E9"
+LIGHT_GREY = "F3F5F7"
 
 
 def get_secret(name: str, default: str = "") -> str:
@@ -499,21 +518,54 @@ if run:
         st.subheader("Dettaglio ordini")
         st.dataframe(detail_df, use_container_width=True, hide_index=True)
 
-        excel_bytes = dataframe_to_excel(summary_df, detail_df)
-        st.download_button(
-            "Scarica Excel",
-            data=excel_bytes,
-            file_name=f"report_shopify_colori_{start_date}_{end_date}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        st.info("I file di export includono un layout istituzionale Wowstampa con logo, periodo analizzato, parametri del report e riepilogo finale per colore.")
+
+        branded_excel_bytes = create_branded_excel(
+            summary_df=summary_df,
+            detail_df=detail_df,
+            start_date=start_date,
+            end_date=end_date,
+            selected_products=wanted_products,
+            quantity_field=quantity_field,
+            multiply_by_pack_size=multiply_by_pack_size,
+            include_without_color=include_without_color,
+        )
+        branded_pdf_bytes = create_branded_pdf(
+            summary_df=summary_df,
+            start_date=start_date,
+            end_date=end_date,
+            selected_products=wanted_products,
+            quantity_field=quantity_field,
+            multiply_by_pack_size=multiply_by_pack_size,
+            include_without_color=include_without_color,
         )
 
-        csv_bytes = summary_df.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            "Scarica CSV riepilogo",
-            data=csv_bytes,
-            file_name=f"report_shopify_colori_{start_date}_{end_date}.csv",
-            mime="text/csv",
-        )
+        col_dl1, col_dl2, col_dl3 = st.columns(3)
+        with col_dl1:
+            st.download_button(
+                "Scarica Excel istituzionale",
+                data=branded_excel_bytes,
+                file_name=f"wowstampa_report_colori_{start_date}_{end_date}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+        with col_dl2:
+            st.download_button(
+                "Scarica PDF istituzionale",
+                data=branded_pdf_bytes,
+                file_name=f"wowstampa_report_colori_{start_date}_{end_date}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        with col_dl3:
+            csv_bytes = summary_df.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "Scarica CSV riepilogo",
+                data=csv_bytes,
+                file_name=f"report_shopify_colori_{start_date}_{end_date}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
         with st.expander("Debug: campi colore trovati nei line item"):
             debug_rows = []
