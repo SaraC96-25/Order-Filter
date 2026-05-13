@@ -5,9 +5,7 @@ from datetime import datetime, time
 from io import BytesIO
 from zoneinfo import ZoneInfo
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
-import cairosvg
 import pandas as pd
 import requests
 import streamlit as st
@@ -25,7 +23,7 @@ from reportlab.platypus import Image as RLImage, Paragraph, SimpleDocTemplate, S
 
 API_VERSION = "2026-04"
 BASE_DIR = Path(__file__).resolve().parent
-LOGO_SVG_PATH = BASE_DIR / "assets" / "wowstampa_logo.svg"
+LOGO_PNG_PATH = BASE_DIR / "assets" / "wowstampa_logo.png"
 BRAND_GREEN = "3AAA35"
 BRAND_DARK = "1D1D1B"
 LIGHT_GREEN = "EAF6E9"

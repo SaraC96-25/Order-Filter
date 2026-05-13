@@ -122,3 +122,9 @@ Download disponibili:
 
 ### Logo
 Il progetto include l'asset `assets/wowstampa_logo.svg`, usato automaticamente negli export.
+
+
+## Fix compatibilità Streamlit Cloud
+
+Questa versione non importa più `cairosvg` a runtime.
+Il logo è già presente in PNG dentro `assets/wowstampa_logo.png`, così l'app non richiede la libreria di sistema `libcairo` su Streamlit Cloud.
