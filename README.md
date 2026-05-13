@@ -8,8 +8,9 @@ App Streamlit per estrarre ordini Shopify e creare un report quantità per color
 - Filtra uno o più prodotti per titolo.
 - Cerca il colore in:
   1. `customAttributes` / line item properties, tipico per opzioni personalizzate;
-  2. `variant.selectedOptions`, se il colore è una variante Shopify nativa;
-  3. `variantTitle`, come fallback.
+  2. `variantTitle`, come fallback.
+
+Questa versione evita i campi `product` e `variant`, quindi non richiede `read_products`. Se vuoi leggere anche opzioni variante native Shopify, aggiungi lo scope `read_products` e usa la versione completa.
 - Raggruppa la quantità totale per prodotto e colore.
 - Esporta Excel con:
   - `Riepilogo`
@@ -64,3 +65,17 @@ streamlit run app.py
 ## Nota VOPO
 
 Se il report non trova colori, apri l'espander **Debug: campi colore trovati nei line item**. Guarda il JSON in `Custom attributes` e aggiungi il nome esatto del campo nella casella "Nomi possibili del campo colore".
+
+
+## Moltiplicazione pezzi per prodotto
+
+Questa versione calcola la quantità reale dei pezzi moltiplicando la quantità ordinata per il numero iniziale nel nome prodotto.
+
+Esempi:
+
+| Prodotto | Quantità ordinata | Totale calcolato |
+|---|---:|---:|
+| 10 T-shirt Economy | 3 | 30 |
+| 20 T-shirt Economy | 17 | 340 |
+
+Se un prodotto non inizia con un numero, il moltiplicatore usato è 1.

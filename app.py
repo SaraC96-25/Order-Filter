@@ -95,27 +95,7 @@ query OrdersForReport($first: Int!, $after: String, $query: String!) {
               customAttributes {
                 key
                 value
-              }
-              product {
-                id
-                title
-                handle
-              }
-              variant {
-                id
-                title
-                sku
-                selectedOptions {
-                  name
-                  value
-                }
-                product {
-                  id
-                  title
-                  handle
-                }
-              }
-            }
+              }            }
           }
         }
       }
@@ -146,27 +126,7 @@ query OrderLineItems($orderId: ID!, $first: Int!, $after: String) {
             customAttributes {
               key
               value
-            }
-            product {
-              id
-              title
-              handle
-            }
-            variant {
-              id
-              title
-              sku
-              selectedOptions {
-                name
-                value
-              }
-              product {
-                id
-                title
-                handle
-              }
-            }
-          }
+            }          }
         }
       }
     }
@@ -250,16 +210,9 @@ def build_shopify_date_query(start_date, end_date, timezone_name: str, exclude_c
 
 
 def product_title_from_line_item(item: dict) -> str:
-    product = item.get("product") or {}
-    variant = item.get("variant") or {}
-    variant_product = variant.get("product") or {}
-
-    return (
-        normalize_text(product.get("title"))
-        or normalize_text(variant_product.get("title"))
-        or normalize_text(item.get("title"))
-        or normalize_text(item.get("name"))
-    )
+    # Versione senza read_products:
+    # usa solo i campi del line item disponibili con read_orders.
+    return normalize_text(item.get("title")) or normalize_text(item.get("name"))
 
 
 def product_matches(product_title: str, wanted_products: list[str], mode: str) -> bool:
@@ -273,6 +226,33 @@ def product_matches(product_title: str, wanted_products: list[str], mode: str) -
         return product_cf in wanted_cf
 
     return any(w in product_cf for w in wanted_cf)
+
+
+
+def extract_units_per_item(product_title: str, line_item_name: str = "") -> tuple[int, str]:
+    """
+    Estrae il moltiplicatore dal nome prodotto/riga ordine.
+
+    Esempi:
+    - "10 T-shirt Economy" -> 10
+    - "20 T-shirt Economy" -> 20
+    - "100 Shopper Cotone" -> 100
+
+    Se non trova un numero iniziale, ritorna 1.
+    """
+    candidates = [normalize_text(product_title), normalize_text(line_item_name)]
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+
+        match = re.match(r"^\s*(\d+)\s*(?:x|×|-)?\s+", candidate, flags=re.IGNORECASE)
+        if match:
+            value = int(match.group(1))
+            if value > 0:
+                return value, "numero iniziale nel nome prodotto"
+
+    return 1, "fallback 1"
 
 
 def parse_attribute_json(value: str) -> dict:
@@ -293,10 +273,10 @@ def parse_attribute_json(value: str) -> dict:
 def extract_color(item: dict, color_keys: list[str]) -> tuple[str, str]:
     """
     Restituisce (colore, sorgente).
-    Cerca in:
-    1. customAttributes / line item properties, tipico per opzioni personalizzate VOPO
-    2. selectedOptions della variante Shopify
-    3. variantTitle come fallback, se contiene pattern tipo Colore: Nero
+
+    Versione senza read_products:
+    1. cerca in customAttributes / line item properties, tipico per opzioni personalizzate VOPO;
+    2. usa variantTitle come fallback, se contiene pattern tipo "Colore: Nero".
     """
 
     normalized_color_keys = {normalize_key(k) for k in color_keys if normalize_key(k)}
@@ -315,16 +295,8 @@ def extract_color(item: dict, color_keys: list[str]) -> tuple[str, str]:
             if normalize_key(nested_key) in normalized_color_keys and normalize_text(nested_value):
                 return normalize_text(nested_value), f"customAttributes.{key}.{nested_key}"
 
-    # 2) Selected options della variante Shopify
-    variant = item.get("variant") or {}
-    for opt in variant.get("selectedOptions") or []:
-        name = normalize_text(opt.get("name"))
-        value = normalize_text(opt.get("value"))
-        if normalize_key(name) in normalized_color_keys and value:
-            return value, f"variant.selectedOptions.{name}"
-
-    # 3) Fallback su variantTitle: "Colore: Nero", "Taglia M / Nero", ecc.
-    variant_title = normalize_text(item.get("variantTitle") or variant.get("title"))
+    # 2) Fallback su variantTitle: "Colore: Nero", "Taglia M / Nero", ecc.
+    variant_title = normalize_text(item.get("variantTitle"))
     if variant_title and variant_title.casefold() != "default title":
         for color_key in color_keys:
             pattern = rf"{re.escape(color_key)}\s*[:=-]\s*([^,/|]+)"
@@ -341,6 +313,7 @@ def build_report(
     product_match_mode: str,
     color_keys: list[str],
     quantity_field: str,
+    multiply_by_pack_size: bool,
     include_without_color: bool,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     summary = defaultdict(int)
@@ -359,19 +332,32 @@ def build_report(
             if not color:
                 color = "Senza colore"
 
-            quantity = int(item.get(quantity_field) or 0)
+            ordered_line_quantity = int(item.get(quantity_field) or 0)
+            units_per_item, units_source = extract_units_per_item(
+                product_title=product_title,
+                line_item_name=item.get("name"),
+            )
+
+            counted_quantity = (
+                ordered_line_quantity * units_per_item
+                if multiply_by_pack_size
+                else ordered_line_quantity
+            )
 
             key = (product_title, color)
-            summary[key] += quantity
+            summary[key] += counted_quantity
 
             detail_rows.append(
                 {
                     "Ordine": order.get("name"),
                     "Data ordine": order.get("createdAt"),
                     "Prodotto": product_title,
-                    "SKU": item.get("sku") or ((item.get("variant") or {}).get("sku")),
+                    "SKU": item.get("sku"),
                     "Nome riga ordine": item.get("name"),
-                    "Quantità conteggiata": quantity,
+                    "Quantità righe ordine": ordered_line_quantity,
+                    "Pezzi per prodotto": units_per_item if multiply_by_pack_size else 1,
+                    "Sorgente moltiplicatore": units_source if multiply_by_pack_size else "disattivato",
+                    "Quantità totale calcolata": counted_quantity,
                     "Colore": color,
                     "Sorgente colore": color_source,
                     "Financial status": order.get("displayFinancialStatus"),
@@ -411,7 +397,7 @@ st.set_page_config(page_title="Report Shopify colori", page_icon="🎨", layout=
 
 st.title("🎨 Report Shopify: quantità ordinate per colore")
 st.caption(
-    "Filtra gli ordini Shopify per data e prodotto, poi raggruppa le quantità per variante/opzione colore."
+    "Filtra gli ordini Shopify per data e prodotto, poi raggruppa le quantità per colore. Se il prodotto inizia con un numero, es. 10 T-shirt, moltiplica quantità ordine × numero iniziale."
 )
 
 with st.sidebar:
@@ -445,9 +431,15 @@ with st.sidebar:
     )
 
     quantity_label = st.radio(
-        "Quantità da conteggiare",
+        "Quantità ordini da conteggiare",
         ["currentQuantity (al netto di rimborsi/rimozioni)", "quantity (quantità originale)"],
         index=0,
+    )
+
+    multiply_by_pack_size = st.checkbox(
+        "Moltiplica per il numero iniziale nel nome prodotto",
+        value=True,
+        help="Esempio: se il prodotto è '10 T-shirt' e la quantità ordinata è 3, il totale diventa 10 × 3 = 30.",
     )
 
     include_without_color = st.checkbox("Mostra anche righe senza colore", value=False)
@@ -497,6 +489,7 @@ if run:
             product_match_mode=product_match_mode,
             color_keys=color_keys,
             quantity_field=quantity_field,
+            multiply_by_pack_size=multiply_by_pack_size,
             include_without_color=include_without_color,
         )
 
@@ -535,10 +528,7 @@ if run:
                             "Prodotto": product_title,
                             "Nome riga ordine": item.get("name"),
                             "Variant title": item.get("variantTitle"),
-                            "Selected options": json.dumps(
-                                ((item.get("variant") or {}).get("selectedOptions") or []),
-                                ensure_ascii=False,
-                            ),
+                            "Selected options": "Non lette: manca scope read_products",
                             "Custom attributes": json.dumps(
                                 item.get("customAttributes") or [],
                                 ensure_ascii=False,
