@@ -11,7 +11,7 @@ App Streamlit per estrarre ordini Shopify e creare un report quantità per color
   2. `variantTitle`, come fallback.
 
 Questa versione evita i campi `product` e `variant`, quindi non richiede `read_products`. Se vuoi leggere anche opzioni variante native Shopify, aggiungi lo scope `read_products` e usa la versione completa.
-- Raggruppa la quantità totale per prodotto e colore.
+- Raggruppa la quantità totale per colore, sommando insieme tutti i prodotti filtrati.
 - Esporta Excel con:
   - `Riepilogo`
   - `Dettaglio ordini`
@@ -79,3 +79,25 @@ Esempi:
 | 20 T-shirt Economy | 17 | 340 |
 
 Se un prodotto non inizia con un numero, il moltiplicatore usato è 1.
+
+
+## Riepilogo unificato per colore
+
+Questa versione non distingue più il riepilogo finale per prodotto.
+
+Esempio:
+
+| Prodotto | Quantità ordine | Pezzi per prodotto | Colore | Totale calcolato |
+|---|---:|---:|---|---:|
+| 10 T-shirt Economy | 3 | 10 | Black | 30 |
+| 20 T-shirt Economy | 17 | 20 | White | 340 |
+| 20 T-shirt Premium | 2 | 20 | Black | 40 |
+
+Il riepilogo finale sarà:
+
+| Colore | Quantità totale |
+|---|---:|
+| Black | 70 |
+| White | 340 |
+
+Il foglio `Dettaglio ordini` mantiene comunque il nome del prodotto, così puoi verificare da dove arrivano i totali.

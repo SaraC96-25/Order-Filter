@@ -344,7 +344,7 @@ def build_report(
                 else ordered_line_quantity
             )
 
-            key = (product_title, color)
+            key = color
             summary[key] += counted_quantity
 
             detail_rows.append(
@@ -366,13 +366,13 @@ def build_report(
             )
 
     summary_rows = [
-        {"Prodotto": product, "Colore": color, "Quantità totale": qty}
-        for (product, color), qty in summary.items()
+        {"Colore": color, "Quantità totale": qty}
+        for color, qty in summary.items()
     ]
 
     summary_df = pd.DataFrame(summary_rows).sort_values(
-        by=["Prodotto", "Colore"], kind="stable"
-    ) if summary_rows else pd.DataFrame(columns=["Prodotto", "Colore", "Quantità totale"])
+        by=["Colore"], kind="stable"
+    ) if summary_rows else pd.DataFrame(columns=["Colore", "Quantità totale"])
 
     detail_df = pd.DataFrame(detail_rows)
     return summary_df, detail_df
@@ -397,7 +397,7 @@ st.set_page_config(page_title="Report Shopify colori", page_icon="🎨", layout=
 
 st.title("🎨 Report Shopify: quantità ordinate per colore")
 st.caption(
-    "Filtra gli ordini Shopify per data e prodotto, poi raggruppa le quantità per colore. Se il prodotto inizia con un numero, es. 10 T-shirt, moltiplica quantità ordine × numero iniziale."
+    "Filtra gli ordini Shopify per data e prodotto, calcola i pezzi reali e unifica il risultato finale per colore, senza distinguere per prodotto."
 )
 
 with st.sidebar:
@@ -493,7 +493,7 @@ if run:
             include_without_color=include_without_color,
         )
 
-        st.subheader("Riepilogo")
+        st.subheader("Riepilogo unificato per colore")
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
         st.subheader("Dettaglio ordini")
