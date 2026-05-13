@@ -410,6 +410,308 @@ def dataframe_to_excel(summary_df: pd.DataFrame, detail_df: pd.DataFrame) -> byt
     return output.getvalue()
 
 
+
+def _format_date_ita(d) -> str:
+    return d.strftime("%d/%m/%Y")
+
+
+def _write_dataframe_styled(ws, df: pd.DataFrame, start_row: int, start_col: int = 1):
+    if df.empty:
+        ws.cell(row=start_row, column=start_col, value="Nessun dato disponibile")
+        ws.cell(row=start_row, column=start_col).font = Font(italic=True, color="666666")
+        return start_row + 2
+
+    thin = Side(style="thin", color="D9E1E5")
+    header_fill = PatternFill("solid", fgColor=BRAND_GREEN)
+    header_font = Font(color="FFFFFF", bold=True)
+    alt_fill = PatternFill("solid", fgColor=LIGHT_GREY)
+
+    columns = list(df.columns)
+
+    for j, col_name in enumerate(columns, start=start_col):
+        cell = ws.cell(row=start_row, column=j, value=col_name)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for i, row in enumerate(df.itertuples(index=False), start=start_row + 1):
+        is_alt = (i - (start_row + 1)) % 2 == 1
+        for j, value in enumerate(row, start=start_col):
+            cell = ws.cell(row=i, column=j, value=value)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            if is_alt:
+                cell.fill = alt_fill
+            cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for idx, col in enumerate(columns, start=start_col):
+        values = df.iloc[:, idx - start_col].fillna("").astype(str).tolist()
+        max_len = max([len(str(col))] + [len(v) for v in values])
+        ws.column_dimensions[get_column_letter(idx)].width = min(max(max_len + 3, 14), 46)
+
+    return start_row + len(df) + 2
+
+
+def create_branded_excel(
+    summary_df: pd.DataFrame,
+    detail_df: pd.DataFrame,
+    start_date,
+    end_date,
+    selected_products: list[str],
+    quantity_field: str,
+    multiply_by_pack_size: bool,
+    include_without_color: bool,
+) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Report"
+
+    ws.sheet_view.showGridLines = False
+    for col in range(1, 8):
+        ws.column_dimensions[get_column_letter(col)].width = 18
+
+    if LOGO_PNG_PATH.exists():
+        img = XLImage(str(LOGO_PNG_PATH))
+        img.width = 190
+        img.height = 89
+        ws.add_image(img, "A1")
+
+    ws.merge_cells("C2:G2")
+    ws["C2"] = "REPORT COLORI ORDINI"
+    ws["C2"].font = Font(size=20, bold=True, color=BRAND_DARK)
+    ws["C2"].alignment = Alignment(horizontal="right")
+
+    ws.merge_cells("C3:G3")
+    ws["C3"] = f"Periodo analizzato: {_format_date_ita(start_date)} – {_format_date_ita(end_date)}"
+    ws["C3"].font = Font(size=11, bold=True, color=BRAND_GREEN)
+    ws["C3"].alignment = Alignment(horizontal="right")
+
+    ws.merge_cells("C4:G4")
+    ws["C4"] = f"Generato il {datetime.now().strftime('%d/%m/%Y alle %H:%M')}"
+    ws["C4"].font = Font(size=10, color="666666")
+    ws["C4"].alignment = Alignment(horizontal="right")
+
+    box_fill = PatternFill("solid", fgColor=LIGHT_GREEN)
+    for row in range(7, 11):
+        for col in range(1, 8):
+            ws.cell(row=row, column=col).fill = box_fill
+
+    ws.merge_cells("A7:G7")
+    ws["A7"] = "PARAMETRI REPORT"
+    ws["A7"].font = Font(bold=True, color=BRAND_DARK)
+
+    products_text = ", ".join(selected_products) if selected_products else "Tutti i prodotti filtrati per data"
+
+    ws.merge_cells("A8:D8")
+    ws["A8"] = f"Prodotti inclusi: {products_text}"
+    ws["A8"].alignment = Alignment(wrap_text=True)
+
+    ws.merge_cells("E8:G8")
+    ws["E8"] = f"Campo quantità: {quantity_field}"
+
+    ws.merge_cells("A9:D9")
+    ws["A9"] = f"Moltiplicatore da nome prodotto: {'Sì' if multiply_by_pack_size else 'No'}"
+
+    ws.merge_cells("E9:G9")
+    ws["E9"] = f"Righe senza colore incluse: {'Sì' if include_without_color else 'No'}"
+
+    total_qty = int(summary_df["Quantità totale"].sum()) if not summary_df.empty else 0
+    total_colors = int(summary_df["Colore"].nunique()) if not summary_df.empty else 0
+
+    ws["A11"] = "Totale pezzi"
+    ws["A11"].font = Font(bold=True, color=BRAND_DARK)
+    ws["B11"] = total_qty
+    ws["B11"].font = Font(size=14, bold=True, color=BRAND_GREEN)
+
+    ws["D11"] = "Colori distinti"
+    ws["D11"].font = Font(bold=True, color=BRAND_DARK)
+    ws["E11"] = total_colors
+    ws["E11"].font = Font(size=14, bold=True, color=BRAND_GREEN)
+
+    ws["A13"] = "RIEPILOGO UNIFICATO PER COLORE"
+    ws["A13"].font = Font(size=14, bold=True, color=BRAND_DARK)
+    next_row = _write_dataframe_styled(ws, summary_df, start_row=14, start_col=1)
+
+    ws.merge_cells(start_row=next_row, start_column=1, end_row=next_row, end_column=7)
+    note_cell = ws.cell(row=next_row, column=1)
+    note_cell.value = "Nota: il riepilogo somma tutti i prodotti filtrati e aggrega i totali esclusivamente per colore."
+    note_cell.font = Font(italic=True, color="666666")
+    note_cell.alignment = Alignment(wrap_text=True)
+
+    ws.freeze_panes = "A14"
+
+    ws2 = wb.create_sheet("Dettaglio ordini")
+    ws2.sheet_view.showGridLines = False
+    ws2["A1"] = "DETTAGLIO ORDINI"
+    ws2["A1"].font = Font(size=16, bold=True, color=BRAND_DARK)
+    ws2["A2"] = f"Periodo: {_format_date_ita(start_date)} – {_format_date_ita(end_date)}"
+    ws2["A2"].font = Font(size=10, color=BRAND_GREEN)
+    _write_dataframe_styled(ws2, detail_df, start_row=4, start_col=1)
+    ws2.freeze_panes = "A5"
+
+    ws3 = wb.create_sheet("Riepilogo dati")
+    ws3.sheet_view.showGridLines = False
+    _write_dataframe_styled(ws3, summary_df, start_row=1, start_col=1)
+    ws3.freeze_panes = "A2"
+
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+def create_branded_pdf(
+    summary_df: pd.DataFrame,
+    start_date,
+    end_date,
+    selected_products: list[str],
+    quantity_field: str,
+    multiply_by_pack_size: bool,
+    include_without_color: bool,
+) -> bytes:
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=1.6 * cm,
+        rightMargin=1.6 * cm,
+        topMargin=1.4 * cm,
+        bottomMargin=1.4 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "TitleCustom",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=18,
+        textColor=colors.HexColor("#1D1D1B"),
+        alignment=TA_CENTER,
+        spaceAfter=10,
+    )
+    sub_style = ParagraphStyle(
+        "SubCustom",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=10,
+        textColor=colors.HexColor("#3AAA35"),
+        alignment=TA_CENTER,
+        spaceAfter=10,
+    )
+    body_style = ParagraphStyle(
+        "BodyCustom",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=9,
+        textColor=colors.HexColor("#1D1D1B"),
+        alignment=TA_LEFT,
+        leading=13,
+    )
+
+    elements = []
+
+    if LOGO_PNG_PATH.exists():
+        logo = RLImage(str(LOGO_PNG_PATH), width=5.2 * cm, height=2.45 * cm)
+        logo.hAlign = "CENTER"
+        elements.append(logo)
+
+    elements.append(Paragraph("REPORT COLORI ORDINI", title_style))
+    elements.append(Paragraph(f"Periodo analizzato: {_format_date_ita(start_date)} – {_format_date_ita(end_date)}", sub_style))
+
+    products_text = ", ".join(selected_products) if selected_products else "Tutti i prodotti filtrati per data"
+    info_text = (
+        f"<b>Generato il:</b> {datetime.now().strftime('%d/%m/%Y alle %H:%M')}<br/>"
+        f"<b>Prodotti inclusi:</b> {products_text}<br/>"
+        f"<b>Campo quantità:</b> {quantity_field}<br/>"
+        f"<b>Moltiplicatore da nome prodotto:</b> {'Sì' if multiply_by_pack_size else 'No'}<br/>"
+        f"<b>Righe senza colore incluse:</b> {'Sì' if include_without_color else 'No'}"
+    )
+    elements.append(Paragraph(info_text, body_style))
+    elements.append(Spacer(1, 0.35 * cm))
+
+    total_qty = int(summary_df["Quantità totale"].sum()) if not summary_df.empty else 0
+    total_colors = int(summary_df["Colore"].nunique()) if not summary_df.empty else 0
+
+    kpi_table = Table(
+        [["Totale pezzi", f"{total_qty}", "Colori distinti", f"{total_colors}"]],
+        colWidths=[4.0 * cm, 3.0 * cm, 4.0 * cm, 3.0 * cm],
+    )
+    kpi_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EAF6E9")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#1D1D1B")),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#D9E1E5")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.8, colors.HexColor("#D9E1E5")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(kpi_table)
+    elements.append(Spacer(1, 0.45 * cm))
+
+    section_style = ParagraphStyle(
+        "SectionCustom",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=12,
+        textColor=colors.HexColor("#1D1D1B"),
+        spaceAfter=8,
+    )
+    elements.append(Paragraph("RIEPILOGO UNIFICATO PER COLORE", section_style))
+
+    table_rows = [["Colore", "Quantità totale"]]
+    if summary_df.empty:
+        table_rows.append(["Nessun dato disponibile", ""])
+    else:
+        for _, row in summary_df.iterrows():
+            table_rows.append([str(row["Colore"]), int(row["Quantità totale"])])
+
+    summary_table = Table(table_rows, colWidths=[10 * cm, 4 * cm])
+    summary_style = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#3AAA35")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#D9E1E5")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#D9E1E5")),
+        ("ALIGN", (1, 1), (1, -1), "CENTER"),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]
+
+    for row_i in range(1, len(table_rows)):
+        if row_i % 2 == 0:
+            summary_style.append(("BACKGROUND", (0, row_i), (-1, row_i), colors.HexColor("#F3F5F7")))
+
+    summary_table.setStyle(TableStyle(summary_style))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 0.35 * cm))
+
+    note_style = ParagraphStyle(
+        "NoteCustom",
+        parent=styles["Italic"],
+        fontName="Helvetica-Oblique",
+        fontSize=8.5,
+        textColor=colors.HexColor("#666666"),
+    )
+    elements.append(Paragraph(
+        "Nota: il riepilogo somma tutti i prodotti filtrati e aggrega i totali esclusivamente per colore.",
+        note_style,
+    ))
+
+    doc.build(elements)
+    return buffer.getvalue()
+
+
+def dataframe_to_excel(summary_df: pd.DataFrame, detail_df: pd.DataFrame) -> bytes:
+    # Compatibilità con eventuali chiamate vecchie.
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        summary_df.to_excel(writer, index=False, sheet_name="Riepilogo")
+        detail_df.to_excel(writer, index=False, sheet_name="Dettaglio ordini")
+    return output.getvalue()
+
+
 st.set_page_config(page_title="Report Shopify colori", page_icon="🎨", layout="wide")
 
 st.title("🎨 Report Shopify: quantità ordinate per colore")
